@@ -1,0 +1,64 @@
+{
+  "nodes": {
+    "two_sample_ttest": {
+      "type": "two_sample_ttest",
+      "params": {
+        "group_column": "group",
+        "value_column": "test_score",
+        "equal_var": false
+      }
+    },
+    "csv_loader": {
+      "type": "csv_loader",
+      "params": {
+        "csv_name": "two_mean_ttest_dataset.csv"
+      }
+    },
+    "report": {
+      "type": "report",
+      "params": {
+        "title": "Two-Sample T-Test Report",
+        "alpha": 0.05,
+        "notes": "something\n"
+      }
+    },
+    "csv_loader_2": {
+      "type": "csv_loader",
+      "params": {
+        "csv_name": "two_mean_ttest_dataset.csv"
+      }
+    }
+  },
+  "edges": [
+    {
+      "src_node": "two_sample_ttest",
+      "src_port": "result",
+      "dst_node": "report",
+      "dst_port": "result"
+    },
+    {
+      "src_node": "csv_loader",
+      "src_port": "dataframe",
+      "dst_node": "two_sample_ttest",
+      "dst_port": "dataframe"
+    }
+  ],
+  "positions": {
+    "two_sample_ttest": [
+      -37.086956521739125,
+      -243.39130434782606
+    ],
+    "csv_loader": [
+      -251.0,
+      -392.0
+    ],
+    "report": [
+      185.2629187500001,
+      -123.29471875000002
+    ],
+    "csv_loader_2": [
+      -273.47826086956525,
+      -264.8695652173913
+    ]
+  }
+}
