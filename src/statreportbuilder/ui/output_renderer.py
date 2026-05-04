@@ -96,6 +96,51 @@ def render_error(message: str) -> QWidget:
     return label
 
 
+def output_to_html(value: Any, max_rows: int = 50) -> str:
+    if value is None:
+        return "<p style='color:#888;'><em>No output yet.</em></p>"
+
+    if isinstance(value, pd.DataFrame):
+        if len(value) == 0:
+            return "<p style='color:#888;'><em>(empty dataframe)</em></p>"
+        df = value.head(max_rows)
+        rows = ["<table style='border-collapse:collapse; margin:6px 0;'>"]
+        rows.append("<tr>" + "".join(
+            f"<th style='border:1px solid #aaa; padding:4px 8px; background:#eee;'>{c}</th>"
+            for c in df.columns
+        ) + "</tr>")
+        for _, row in df.iterrows():
+            cells = []
+            for v in row:
+                if pd.isna(v):
+                    text = ""
+                elif isinstance(v, float):
+                    text = f"{v:.4f}"
+                else:
+                    text = str(v)
+                cells.append(
+                    f"<td style='border:1px solid #aaa; padding:4px 8px;'>{text}</td>"
+                )
+            rows.append("<tr>" + "".join(cells) + "</tr>")
+        rows.append("</table>")
+        if len(value) > max_rows:
+            rows.append(
+                f"<p style='color:#888; font-size:90%;'>"
+                f"Showing first {max_rows} of {len(value):,} rows.</p>"
+            )
+        return "".join(rows)
+
+    if isinstance(value, str):
+        if "<html" in value.lower() or "<body" in value.lower():
+            return value
+        return f"<p>{value}</p>"
+
+    if isinstance(value, dict):
+        return _dict_to_html(value)
+
+    return f"<pre>{value}</pre>"
+
+
 def _dict_to_html(data: dict) -> str:
     rows = []
     for key, value in data.items():

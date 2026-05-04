@@ -1,0 +1,367 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QAction
+from PySide6.QtWidgets import (
+    QComboBox,
+    QDialog,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMenu,
+    QPlainTextEdit,
+    QPushButton,
+    QScrollArea,
+    QSpinBox,
+    QTextBrowser,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
+)
+
+from src.statreportbuilder.core.blocks import Block
+from src.statreportbuilder.core.graph import Graph
+from src.statreportbuilder.ui.output_renderer import output_to_html
+
+
+PAGE_FORMATS = ["A4", "Letter", "Legal"]
+OVERRIDE_TITLE = "title"
+OVERRIDE_NARRATIVE = "narrative"
+
+
+@dataclass
+class BlockSnapshot:
+    node_id: str
+    block: Block
+    result: dict[str, Any] | None
+    overrides: dict[str, str]
+
+
+def _primary_output(block: Block, result: dict[str, Any] | None) -> Any:
+    if result is None or "_error" in result:
+        return None
+    if not block.outputs:
+        return None
+    return result.get(block.outputs[0].name)
+
+
+def _effective_title(block: Block, overrides: dict[str, str]) -> str:
+    override = (overrides.get(OVERRIDE_TITLE) or "").strip()
+    if override:
+        return override
+    params_title = str(block.params.get("title") or "").strip()
+    return params_title or block.title
+
+
+class _BlockCard(QFrame):
+    override_changed = Signal(str, str, str)
+
+    def __init__(self, snapshot: BlockSnapshot, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._node_id = snapshot.node_id
+        self.setFrameShape(QFrame.StyledPanel)
+        self.setStyleSheet(
+            "QFrame { background: #ffffff; border: 1px solid #d4d6da; border-radius: 6px; }"
+        )
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 8, 10, 10)
+        layout.setSpacing(6)
+
+        header = QHBoxLayout()
+        header.setSpacing(6)
+        self._title_edit = QLineEdit()
+        self._title_edit.setText(_effective_title(snapshot.block, snapshot.overrides))
+        self._title_edit.setPlaceholderText("Section title")
+        self._title_edit.setStyleSheet(
+            "QLineEdit { font-weight: bold; font-size: 13px; "
+            "border: 1px solid transparent; padding: 2px 4px; }"
+            "QLineEdit:focus { border: 1px solid #4a90e2; background: #fafbfc; }"
+            "QLineEdit:hover { border: 1px solid #d4d6da; }"
+        )
+        self._title_edit.editingFinished.connect(self._emit_title)
+        header.addWidget(self._title_edit, stretch=1)
+
+        badge = QLabel(f"{snapshot.block.title}  ·  {snapshot.node_id}")
+        badge.setStyleSheet(
+            "color: #888; font-size: 10px; padding: 2px 6px; "
+            "background: #f0f2f5; border-radius: 3px; border: none;"
+        )
+        header.addWidget(badge)
+        layout.addLayout(header)
+
+        self._narrative = QPlainTextEdit()
+        self._narrative.setPlainText(snapshot.overrides.get(OVERRIDE_NARRATIVE, ""))
+        self._narrative.setPlaceholderText(
+            "Narrative for this section… (included verbatim above the block output)"
+        )
+        self._narrative.setFixedHeight(60)
+        self._narrative.setStyleSheet(
+            "QPlainTextEdit { border: 1px solid #d4d6da; border-radius: 4px; "
+            "background: #fafbfc; }"
+        )
+        self._narrative.textChanged.connect(self._emit_narrative)
+        layout.addWidget(self._narrative)
+
+        layout.addWidget(self._build_output_view(snapshot))
+
+    def _build_output_view(self, snapshot: BlockSnapshot) -> QWidget:
+        if snapshot.result is not None and "_error" in snapshot.result:
+            label = QLabel(f"Error: {snapshot.result['_error']}")
+            label.setWordWrap(True)
+            label.setStyleSheet(
+                "color: #883333; background: #fbeaea; border: 1px solid #c99; "
+                "padding: 8px; border-radius: 4px;"
+            )
+            return label
+
+        value = _primary_output(snapshot.block, snapshot.result)
+        if value is None:
+            label = QLabel("No output yet — connect upstream blocks or set required parameters.")
+            label.setStyleSheet("color: #888; padding: 6px; border: none;")
+            label.setAlignment(Qt.AlignCenter)
+            return label
+
+        browser = QTextBrowser()
+        browser.setOpenLinks(False)
+        browser.setStyleSheet(
+            "QTextBrowser { border: 1px solid #e1e3e6; border-radius: 4px; "
+            "background: #fafbfc; padding: 4px; }"
+        )
+        browser.setHtml(output_to_html(value))
+        browser.setMinimumHeight(80)
+        browser.setMaximumHeight(280)
+        return browser
+
+    def _emit_title(self) -> None:
+        self.override_changed.emit(self._node_id, OVERRIDE_TITLE, self._title_edit.text())
+
+    def _emit_narrative(self) -> None:
+        self.override_changed.emit(
+            self._node_id, OVERRIDE_NARRATIVE, self._narrative.toPlainText()
+        )
+
+
+class DraftReportPane(QWidget):
+    setting_changed = Signal(str, object)
+    override_changed = Signal(str, str, str)
+    compile_requested = Signal()
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setMinimumWidth(360)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        root.addWidget(self._build_toolbar())
+
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setFrameShape(QScrollArea.NoFrame)
+
+        self._content = QWidget()
+        self._content_layout = QVBoxLayout(self._content)
+        self._content_layout.setContentsMargins(12, 12, 12, 12)
+        self._content_layout.setSpacing(10)
+        self._content_layout.addStretch()
+        self._scroll.setWidget(self._content)
+        root.addWidget(self._scroll, stretch=1)
+
+        self._suppress_settings = False
+
+    def _build_toolbar(self) -> QWidget:
+        bar = QWidget()
+        bar.setStyleSheet("background: #f3f4f6; border-bottom: 1px solid #d4d6da;")
+        layout = QHBoxLayout(bar)
+        layout.setContentsMargins(8, 6, 8, 6)
+        layout.setSpacing(8)
+
+        layout.addWidget(QLabel("Font size:"))
+        self._font_size = QSpinBox()
+        self._font_size.setRange(6, 36)
+        self._font_size.setValue(11)
+        self._font_size.setSuffix(" pt")
+        self._font_size.valueChanged.connect(
+            lambda v: self._emit_setting("font_size_pt", int(v))
+        )
+        layout.addWidget(self._font_size)
+
+        layout.addWidget(QLabel("Page:"))
+        self._page_format = QComboBox()
+        self._page_format.addItems(PAGE_FORMATS)
+        self._page_format.currentTextChanged.connect(
+            lambda v: self._emit_setting("page_format", v)
+        )
+        layout.addWidget(self._page_format)
+
+        layout.addStretch()
+
+        self._compile_btn = QPushButton("Compile / Render")
+        self._compile_btn.setStyleSheet(
+            "QPushButton { background: #4a90e2; color: white; padding: 4px 14px; "
+            "border-radius: 4px; font-weight: bold; }"
+            "QPushButton:hover { background: #3a78c2; }"
+        )
+        self._compile_btn.clicked.connect(self.compile_requested)
+        layout.addWidget(self._compile_btn)
+
+        return bar
+
+    def set_snapshot(
+        self, graph: Graph | None, results: dict[str, dict[str, Any]] | None
+    ) -> None:
+        self._suppress_settings = True
+        try:
+            settings = (graph.render_settings if graph else {}) or {}
+            self._font_size.setValue(int(settings.get("font_size_pt", 11)))
+            fmt = str(settings.get("page_format", "A4"))
+            idx = self._page_format.findText(fmt)
+            if idx >= 0:
+                self._page_format.setCurrentIndex(idx)
+        finally:
+            self._suppress_settings = False
+
+        self._clear_cards()
+
+        if graph is None or not graph.nodes:
+            placeholder = QLabel(
+                "Drop blocks into the graph to assemble your report preview."
+            )
+            placeholder.setStyleSheet("color: gray;")
+            placeholder.setAlignment(Qt.AlignCenter)
+            self._content_layout.insertWidget(0, placeholder)
+            return
+
+        results = results or {}
+        for nid in graph.topological_order():
+            block = graph.nodes[nid]
+            snapshot = BlockSnapshot(
+                node_id=nid,
+                block=block,
+                result=results.get(nid),
+                overrides=graph.block_overrides.get(nid, {}),
+            )
+            card = _BlockCard(snapshot)
+            card.override_changed.connect(self.override_changed)
+            self._content_layout.insertWidget(self._content_layout.count() - 1, card)
+
+    def _clear_cards(self) -> None:
+        while self._content_layout.count() > 1:
+            item = self._content_layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+
+    def _emit_setting(self, name: str, value: Any) -> None:
+        if self._suppress_settings:
+            return
+        self.setting_changed.emit(name, value)
+
+
+def compile_report_html(
+    graph: Graph, results: dict[str, dict[str, Any]]
+) -> str:
+    settings = graph.render_settings or {}
+    family = settings.get("font_family", "Arial, sans-serif")
+    size = int(settings.get("font_size_pt", 11))
+
+    head = (
+        "<html><head><style>"
+        f"body {{ font-family: {family}; font-size: {size}pt; color: #222; "
+        "margin: 32px; line-height: 1.45; }}"
+        "h1, h2 { border-bottom: 1px solid #ccc; padding-bottom: 4px; }"
+        "table { border-collapse: collapse; margin: 8px 0; }"
+        "th, td { border: 1px solid #888; padding: 6px 12px; text-align: left; }"
+        "th { background: #eee; }"
+        ".section { margin-bottom: 28px; }"
+        ".narrative { white-space: pre-wrap; margin: 6px 0 10px 0; }"
+        ".error { color: #883333; background: #fbeaea; border: 1px solid #c99; padding: 10px; }"
+        "</style></head><body>"
+    )
+
+    body_parts: list[str] = []
+    rendered_any = False
+    for nid in graph.topological_order():
+        block = graph.nodes[nid]
+        result = results.get(nid)
+        overrides = graph.block_overrides.get(nid, {})
+
+        if result is not None and "_error" in result:
+            body_parts.append(
+                f"<div class='section'><h2>{_effective_title(block, overrides)}</h2>"
+                f"<div class='error'>{result['_error']}</div></div>"
+            )
+            rendered_any = True
+            continue
+
+        value = _primary_output(block, result)
+        if value is None and not overrides.get(OVERRIDE_NARRATIVE):
+            continue
+
+        title = _effective_title(block, overrides)
+        narrative = (overrides.get(OVERRIDE_NARRATIVE) or "").strip()
+
+        section = [f"<div class='section'><h2>{title}</h2>"]
+        if narrative:
+            section.append(f"<div class='narrative'>{narrative}</div>")
+        if value is not None:
+            section.append(output_to_html(value))
+        section.append("</div>")
+        body_parts.append("".join(section))
+        rendered_any = True
+
+    if not rendered_any:
+        body_parts.append(
+            "<p style='color:#888;'><em>No connected blocks have produced output yet.</em></p>"
+        )
+
+    return head + "".join(body_parts) + "</body></html>"
+
+
+class CompiledReportDialog(QDialog):
+    export_requested = Signal(str)
+
+    def __init__(self, html: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Compiled Report")
+        self.resize(900, 700)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        toolbar = QWidget()
+        toolbar.setStyleSheet("background: #f3f4f6; border-bottom: 1px solid #d4d6da;")
+        bar = QHBoxLayout(toolbar)
+        bar.setContentsMargins(8, 6, 8, 6)
+        bar.addStretch()
+
+        export_btn = QToolButton()
+        export_btn.setText("Export")
+        export_btn.setPopupMode(QToolButton.InstantPopup)
+        menu = QMenu(export_btn)
+        for fmt in ("PDF", "HTML"):
+            action = QAction(fmt, menu)
+            action.triggered.connect(
+                lambda _checked=False, f=fmt: self.export_requested.emit(f)
+            )
+            menu.addAction(action)
+        export_btn.setMenu(menu)
+        bar.addWidget(export_btn)
+
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self.accept)
+        bar.addWidget(close_btn)
+
+        layout.addWidget(toolbar)
+
+        browser = QTextBrowser()
+        browser.setOpenExternalLinks(True)
+        browser.setHtml(html)
+        layout.addWidget(browser, stretch=1)

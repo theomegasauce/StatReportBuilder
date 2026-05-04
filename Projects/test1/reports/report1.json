@@ -5,7 +5,7 @@
       "params": {
         "group_column": "group",
         "value_column": "test_score",
-        "equal_var": false
+        "equal_var": true
       }
     },
     "csv_loader": {
@@ -19,46 +19,54 @@
       "params": {
         "title": "Two-Sample T-Test Report",
         "alpha": 0.05,
-        "notes": "something\n"
+        "notes": ""
       }
     },
-    "csv_loader_2": {
-      "type": "csv_loader",
+    "two_sample_ttest_2": {
+      "type": "two_sample_ttest",
       "params": {
-        "csv_name": "two_mean_ttest_dataset.csv"
+        "group_column": null,
+        "value_column": null,
+        "equal_var": false
       }
     }
   },
   "edges": [
     {
-      "src_node": "two_sample_ttest",
-      "src_port": "result",
-      "dst_node": "report",
-      "dst_port": "result"
-    },
-    {
       "src_node": "csv_loader",
       "src_port": "dataframe",
       "dst_node": "two_sample_ttest",
       "dst_port": "dataframe"
+    },
+    {
+      "src_node": "two_sample_ttest",
+      "src_port": "result",
+      "dst_node": "report",
+      "dst_port": "result"
     }
   ],
   "positions": {
     "two_sample_ttest": [
-      -37.086956521739125,
-      -243.39130434782606
+      -151.57996902173917,
+      -622.762810597826
     ],
     "csv_loader": [
-      -251.0,
-      -392.0
+      -409.70000000000005,
+      -686.4
     ],
     "report": [
-      185.2629187500001,
-      -123.29471875000002
+      114.92999999999998,
+      -593.6424999999999
     ],
-    "csv_loader_2": [
-      -273.47826086956525,
-      -264.8695652173913
+    "two_sample_ttest_2": [
+      -216.49999999999997,
+      -378.6499999999999
     ]
-  }
+  },
+  "render_settings": {
+    "font_family": "Arial, sans-serif",
+    "font_size_pt": 11,
+    "page_format": "Letter"
+  },
+  "block_overrides": {}
 }

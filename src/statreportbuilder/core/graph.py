@@ -17,11 +17,22 @@ class Edge:
     dst_port: str
 
 
+DEFAULT_RENDER_SETTINGS: dict[str, Any] = {
+    "font_family": "Arial, sans-serif",
+    "font_size_pt": 11,
+    "page_format": "A4",
+}
+
+
 @dataclass
 class Graph:
     nodes: dict[str, Block] = field(default_factory=dict)
     edges: list[Edge] = field(default_factory=list)
     positions: dict[str, tuple[float, float]] = field(default_factory=dict)
+    render_settings: dict[str, Any] = field(
+        default_factory=lambda: dict(DEFAULT_RENDER_SETTINGS)
+    )
+    block_overrides: dict[str, dict[str, str]] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -39,6 +50,10 @@ class Graph:
                 for e in self.edges
             ],
             "positions": {nid: list(pos) for nid, pos in self.positions.items()},
+            "render_settings": dict(self.render_settings),
+            "block_overrides": {
+                nid: dict(overrides) for nid, overrides in self.block_overrides.items()
+            },
         }
 
     @classmethod
@@ -52,7 +67,25 @@ class Graph:
             for e in data.get("edges", [])
         ]
         positions = {nid: tuple(pos) for nid, pos in data.get("positions", {}).items()}
-        return cls(nodes=nodes, edges=edges, positions=positions)
+        render_settings = dict(DEFAULT_RENDER_SETTINGS)
+        render_settings.update(data.get("render_settings") or {})
+
+        block_overrides: dict[str, dict[str, str]] = {
+            nid: dict(overrides)
+            for nid, overrides in (data.get("block_overrides") or {}).items()
+        }
+        for nid, narrative in (data.get("draft_text") or {}).items():
+            if not narrative:
+                continue
+            block_overrides.setdefault(nid, {}).setdefault("narrative", narrative)
+
+        return cls(
+            nodes=nodes,
+            edges=edges,
+            positions=positions,
+            render_settings=render_settings,
+            block_overrides=block_overrides,
+        )
 
     def save(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)

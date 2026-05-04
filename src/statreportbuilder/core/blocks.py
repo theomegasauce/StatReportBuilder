@@ -40,6 +40,15 @@ class Block:
     def execute(self, inputs: dict[str, Any], context: dict[str, Any]) -> dict[str, Any]:
         raise NotImplementedError
 
+    def draft_summary(self) -> str:
+        parts = []
+        for spec in self.params_spec:
+            value = self.params.get(spec.name)
+            if value in (None, "", False):
+                continue
+            parts.append(f"{spec.label}: {value}")
+        return "; ".join(parts) if parts else "(unconfigured)"
+
 
 class CSVLoaderBlock(Block):
     type_id = "csv_loader"
@@ -61,6 +70,10 @@ class CSVLoaderBlock(Block):
         if not path.exists():
             return {"dataframe": None}
         return {"dataframe": pd.read_csv(path)}
+
+    def draft_summary(self) -> str:
+        name = self.params.get("csv_name") or ""
+        return f"Load CSV: {name}" if name else "Load CSV: (no file selected)"
 
 
 class TwoSampleTTestBlock(Block):
@@ -117,6 +130,12 @@ class TwoSampleTTestBlock(Block):
             }
         }
 
+    def draft_summary(self) -> str:
+        gcol = self.params.get("group_column") or "?"
+        vcol = self.params.get("value_column") or "?"
+        var = "equal variance" if self.params.get("equal_var") else "Welch's correction"
+        return f"Two-sample t-test: {vcol} by {gcol} ({var})"
+
 
 class ReportBlock(Block):
     type_id = "report"
@@ -138,6 +157,11 @@ class ReportBlock(Block):
             alpha = 0.05
         notes = str(self.params.get("notes") or "")
         return {"report_html": self._render(title, alpha, notes, result)}
+
+    def draft_summary(self) -> str:
+        title = self.params.get("title") or "Untitled report"
+        alpha = self.params.get("alpha", 0.05)
+        return f"Report: \"{title}\" (α = {alpha})"
 
     @staticmethod
     def _render(title: str, alpha: float, notes: str, result: dict | None) -> str:

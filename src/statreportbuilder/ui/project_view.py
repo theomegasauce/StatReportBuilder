@@ -19,9 +19,15 @@ from src.statreportbuilder.core.blocks import BLOCK_REGISTRY
 from src.statreportbuilder.core.graph import Edge, Graph
 from src.statreportbuilder.core.pdf_export import export_html_to_pdf
 from src.statreportbuilder.core.storage import Project
+from src.statreportbuilder.ui.block_edit_pane import BlockEditContext, BlockEditPane
+from src.statreportbuilder.ui.block_region import BlockRegion
 from src.statreportbuilder.ui.csv_preview import CSVPreviewDialog, csv_summary
+from src.statreportbuilder.ui.draft_report import (
+    CompiledReportDialog,
+    DraftReportPane,
+    compile_report_html,
+)
 from src.statreportbuilder.ui.node_graph import BLOCK_HEIGHT, BLOCK_WIDTH, NodeGraphBuilder
-from src.statreportbuilder.ui.output_report import NodeContext, OutputReportPane
 from src.statreportbuilder.ui.project_directory import ProjectDirectory
 
 
@@ -59,27 +65,40 @@ class ProjectView(QWidget):
         self._graph: Graph | None = None
         self._graph_path: Path | None = None
         self._results: dict[str, dict[str, Any]] = {}
+        self._compiled_html: str | None = None
         self._selected_node: str | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
+        self.block_region = BlockRegion()
         self.directory = ProjectDirectory()
+        self.block_edit = BlockEditPane()
         self.graph_builder = NodeGraphBuilder()
-        self.output_report = OutputReportPane()
+        self.draft_pane = DraftReportPane()
+
+        self._left_splitter = QSplitter(Qt.Vertical)
+        self._left_splitter.setChildrenCollapsible(False)
+        self._left_splitter.addWidget(self.directory)
+        self._left_splitter.addWidget(self.block_edit)
+        self._left_splitter.setStretchFactor(0, 2)
+        self._left_splitter.setStretchFactor(1, 1)
+        self._left_splitter.setSizes([400, 220])
+        self.block_edit.hide()
 
         self._splitter = QSplitter(Qt.Horizontal)
         self._splitter.setChildrenCollapsible(False)
-        self._splitter.addWidget(self.directory)
+        self._splitter.addWidget(self._left_splitter)
         self._splitter.addWidget(self.graph_builder)
-        self._splitter.addWidget(self.output_report)
+        self._splitter.addWidget(self.draft_pane)
         self._splitter.setStretchFactor(0, 0)
         self._splitter.setStretchFactor(1, 3)
         self._splitter.setStretchFactor(2, 2)
-        self._splitter.setSizes([240, 800, 460])
+        self._splitter.setSizes([260, 760, 480])
 
-        layout.addWidget(self._splitter)
+        layout.addWidget(self.block_region)
+        layout.addWidget(self._splitter, stretch=1)
 
         self._wire_signals()
         self._refresh_directory()
@@ -97,11 +116,16 @@ class ProjectView(QWidget):
 
         self.graph_builder.node_selected.connect(self._on_node_selected)
         self.graph_builder.block_dropped.connect(self._on_block_dropped)
-        self.graph_builder.preset_requested.connect(self._on_preset_requested)
         self.graph_builder.edge_requested.connect(self._on_edge_requested)
         self.graph_builder.delete_requested.connect(self._on_delete_requested)
-        self.output_report.parameter_changed.connect(self._on_parameter_changed)
-        self.output_report.export_requested.connect(self._on_export)
+        self.block_region.preset_requested.connect(self._on_preset_requested)
+
+        self.block_edit.parameter_changed.connect(self._on_parameter_changed)
+        self.block_edit.close_requested.connect(self._close_block_edit)
+
+        self.draft_pane.setting_changed.connect(self._on_setting_changed)
+        self.draft_pane.override_changed.connect(self._on_override_changed)
+        self.draft_pane.compile_requested.connect(self._on_compile_requested)
 
     @property
     def project(self) -> Project:
@@ -119,6 +143,7 @@ class ProjectView(QWidget):
             self.directory.set_active_file(reports[0])
         else:
             self.graph_builder.set_graph(None)
+            self.draft_pane.set_snapshot(None, None)
 
     def _on_file_selected(self, name: str) -> None:
         path = self._project.report_path(name)
@@ -132,10 +157,11 @@ class ProjectView(QWidget):
         self._graph = graph
         self._graph_path = path
         self._selected_node = None
+        self._compiled_html = None
         self.graph_builder.set_graph(graph)
         self._execute()
-        self._show_selected_node()
-        self._refresh_report_html()
+        self._refresh_draft()
+        self._show_selected_block()
 
     def _execute(self) -> None:
         if self._graph is None:
@@ -143,38 +169,31 @@ class ProjectView(QWidget):
             return
         self._results = self._graph.execute({"project": self._project})
 
-    def _selected_context(self) -> NodeContext | None:
+    def _refresh_draft(self) -> None:
+        self.draft_pane.set_snapshot(self._graph, self._results)
+
+    def _selected_block_context(self) -> BlockEditContext | None:
         if self._graph is None or self._selected_node is None:
             return None
         block = self._graph.nodes.get(self._selected_node)
         if block is None:
             return None
-        return NodeContext(
+        return BlockEditContext(
             block=block,
-            result=self._results.get(self._selected_node),
             columns_by_input=self._columns_for(self._selected_node),
             csv_choices=self._project.list_csvs(),
         )
 
-    def _show_selected_node(self) -> None:
-        self.output_report.show_node(self._selected_context())
+    def _show_selected_block(self) -> None:
+        ctx = self._selected_block_context()
+        self.block_edit.show_block(ctx)
+        if ctx is not None:
+            if not self.block_edit.isVisible():
+                self.block_edit.show()
+                self._left_splitter.setSizes([400, 220])
 
-    def _refresh_report_html(self) -> None:
-        html = self._find_report_html()
-        self.output_report.set_report_html(html)
-
-    def _find_report_html(self) -> str | None:
-        if self._graph is None:
-            return None
-        for nid, block in self._graph.nodes.items():
-            if block.type_id == "report":
-                result = self._results.get(nid) or {}
-                if "_error" in result:
-                    return f"<h1>Report error</h1><pre>{result['_error']}</pre>"
-                html = result.get("report_html")
-                if isinstance(html, str):
-                    return html
-        return None
+    def _close_block_edit(self) -> None:
+        self.block_edit.hide()
 
     def _columns_for(self, node_id: str) -> dict[str, list[str]]:
         if self._graph is None:
@@ -189,7 +208,7 @@ class ProjectView(QWidget):
 
     def _on_node_selected(self, node_id: object) -> None:
         self._selected_node = node_id if isinstance(node_id, str) else None
-        self._show_selected_node()
+        self._show_selected_block()
 
     def _on_parameter_changed(self, node_id: str, _name: str, _value: object) -> None:
         if self._graph is None or self._graph_path is None:
@@ -197,9 +216,42 @@ class ProjectView(QWidget):
         self._graph.positions = self.graph_builder.collect_positions()
         self._graph.save(self._graph_path)
         self._execute()
-        self.output_report.refresh_output(self._selected_context())
-        self._refresh_report_html()
+        self._refresh_draft()
         self.graph_builder.refresh_block(node_id)
+
+    def _on_setting_changed(self, name: str, value: Any) -> None:
+        if self._graph is None or self._graph_path is None:
+            return
+        self._graph.render_settings[name] = value
+        self._graph.save(self._graph_path)
+
+    def _on_override_changed(self, node_id: str, key: str, value: str) -> None:
+        if self._graph is None or self._graph_path is None:
+            return
+        overrides = self._graph.block_overrides.setdefault(node_id, {})
+        if value:
+            overrides[key] = value
+        else:
+            overrides.pop(key, None)
+            if not overrides:
+                self._graph.block_overrides.pop(node_id, None)
+        self._graph.save(self._graph_path)
+
+    def _on_compile_requested(self) -> None:
+        if self._graph is None:
+            QMessageBox.information(self, "No report open", "Open a report first.")
+            return
+        try:
+            self._execute()
+        except Exception as exc:
+            QMessageBox.critical(self, "Compile failed", str(exc))
+            return
+
+        html = compile_report_html(self._graph, self._results)
+        self._compiled_html = html
+        dlg = CompiledReportDialog(html, self)
+        dlg.export_requested.connect(self._on_export)
+        dlg.exec()
 
     def _on_block_dropped(self, type_id: str, scene_pos) -> None:
         if not self._require_active_graph():
@@ -300,6 +352,7 @@ class ProjectView(QWidget):
         for nid in node_ids:
             self._graph.nodes.pop(nid, None)
             self._graph.positions.pop(nid, None)
+            self._graph.draft_text.pop(nid, None)
 
         edge_key_set = {tuple(k) for k in edge_keys}
         self._graph.edges = [
@@ -340,9 +393,8 @@ class ProjectView(QWidget):
         if select_node is not None:
             self._selected_node = select_node
             self.graph_builder.select_node(select_node)
-        self._execute()
-        self._show_selected_node()
-        self._refresh_report_html()
+        self._refresh_draft()
+        self._show_selected_block()
 
     def _would_cycle(self, src_node: str, dst_node: str) -> bool:
         if self._graph is None:
@@ -397,10 +449,11 @@ class ProjectView(QWidget):
         if self._graph_path is not None and self._graph_path.name == name:
             self._graph = None
             self._graph_path = None
-            self._results = {}
+            self._compiled_html = None
             self.graph_builder.set_graph(None)
-            self.output_report.show_node(None)
-            self.output_report.set_report_html(None)
+            self.draft_pane.set_graph(None)
+            self.block_edit.show_block(None)
+            self.block_edit.hide()
         self._refresh_directory()
 
     def _on_import_csv(self) -> None:
@@ -416,9 +469,8 @@ class ProjectView(QWidget):
                 QMessageBox.warning(self, "Import failed", f"{Path(p).name}:\n{exc}")
         self._refresh_directory()
         if self._graph is not None:
-            self._execute()
-            self._show_selected_node()
-            self._refresh_report_html()
+            self._refresh_draft()
+            self._show_selected_block()
 
     def _on_preview_csv(self, name: str) -> None:
         path = self._project.csv_path(name)
@@ -428,9 +480,12 @@ class ProjectView(QWidget):
         dlg.exec()
 
     def _on_export(self, fmt: str) -> None:
-        html = self._find_report_html()
+        html = self._compiled_html
         if not html:
-            QMessageBox.information(self, "Nothing to export", "Compile a report first.")
+            QMessageBox.information(
+                self, "Nothing to export",
+                "Press Compile / Render before exporting.",
+            )
             return
 
         if fmt == "PDF":

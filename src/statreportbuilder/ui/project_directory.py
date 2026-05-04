@@ -5,62 +5,17 @@ from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
-    QListWidget,
-    QListWidgetItem,
     QMenu,
     QToolButton,
+    QTreeWidget,
+    QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
 
-class CollapsibleSection(QWidget):
-    add_clicked = Signal()
-
-    def __init__(self, title: str, content: QWidget, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-
-        header = QWidget()
-        h = QHBoxLayout(header)
-        h.setContentsMargins(4, 4, 4, 4)
-        h.setSpacing(4)
-
-        self._toggle_btn = QToolButton()
-        self._toggle_btn.setStyleSheet("QToolButton { border: none; font-weight: bold; }")
-        self._toggle_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self._toggle_btn.setArrowType(Qt.DownArrow)
-        self._toggle_btn.setText(title)
-        self._toggle_btn.setCheckable(True)
-        self._toggle_btn.setChecked(True)
-        self._toggle_btn.clicked.connect(self._on_toggled)
-        h.addWidget(self._toggle_btn)
-
-        h.addStretch()
-
-        self._add_btn = QToolButton()
-        self._add_btn.setText("+")
-        self._add_btn.setToolTip(f"Add to {title}")
-        self._add_btn.clicked.connect(self.add_clicked)
-        h.addWidget(self._add_btn)
-
-        layout.addWidget(header)
-
-        self._content = content
-        layout.addWidget(content)
-
-    def _on_toggled(self, checked: bool) -> None:
-        self._toggle_btn.setArrowType(Qt.DownArrow if checked else Qt.RightArrow)
-        self._content.setVisible(checked)
-
-    def is_expanded(self) -> bool:
-        return self._toggle_btn.isChecked()
-
-    def set_expanded(self, expanded: bool) -> None:
-        self._toggle_btn.setChecked(expanded)
-        self._on_toggled(expanded)
+SECTION_REPORTS = "section_reports"
+SECTION_CSVS = "section_csvs"
 
 
 class ProjectDirectory(QWidget):
@@ -79,82 +34,132 @@ class ProjectDirectory(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
-        layout.setSpacing(8)
+        layout.setSpacing(4)
 
+        header = QHBoxLayout()
+        header.setContentsMargins(4, 0, 4, 0)
         title = QLabel("Project")
         title.setStyleSheet("font-weight: bold; padding: 4px;")
-        layout.addWidget(title)
+        header.addWidget(title)
+        header.addStretch()
 
-        self._files_list = QListWidget()
-        self._files_list.setContextMenuPolicy(Qt.CustomContextMenu)
-        self._files_list.customContextMenuRequested.connect(self._on_files_context_menu)
-        self._files_list.currentItemChanged.connect(self._on_file_changed)
+        add_btn = QToolButton()
+        add_btn.setText("+")
+        add_btn.setToolTip("Add to project")
+        add_btn.setPopupMode(QToolButton.InstantPopup)
+        add_menu = QMenu(add_btn)
+        new_report_action = QAction("New Report Builder File", add_menu)
+        new_report_action.triggered.connect(self.file_create_requested)
+        import_csv_action = QAction("Import CSV…", add_menu)
+        import_csv_action.triggered.connect(self.csv_import_requested)
+        add_menu.addAction(new_report_action)
+        add_menu.addAction(import_csv_action)
+        add_btn.setMenu(add_menu)
+        header.addWidget(add_btn)
+        layout.addLayout(header)
 
-        self._csv_list = QListWidget()
-        self._csv_list.itemDoubleClicked.connect(self._on_csv_double_clicked)
+        self._tree = QTreeWidget()
+        self._tree.setHeaderHidden(True)
+        self._tree.setIndentation(14)
+        self._tree.setAnimated(True)
+        self._tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._tree.customContextMenuRequested.connect(self._on_context_menu)
+        self._tree.currentItemChanged.connect(self._on_current_changed)
+        self._tree.itemDoubleClicked.connect(self._on_item_double_clicked)
+        layout.addWidget(self._tree, stretch=1)
 
-        files_section = CollapsibleSection("Report Builder Files", self._files_list)
-        files_section.add_clicked.connect(self.file_create_requested)
-        layout.addWidget(files_section)
+        bold = self._tree.font()
+        bold.setBold(True)
 
-        csv_section = CollapsibleSection("Imported Data", self._csv_list)
-        csv_section.add_clicked.connect(self.csv_import_requested)
-        layout.addWidget(csv_section)
+        self._reports_root = QTreeWidgetItem(["Report Builder Files"])
+        self._reports_root.setFont(0, bold)
+        self._reports_root.setData(0, Qt.UserRole, SECTION_REPORTS)
+        self._tree.addTopLevelItem(self._reports_root)
+        self._reports_root.setExpanded(True)
 
-        layout.addStretch()
-
-        self._files_section = files_section
-        self._csv_section = csv_section
+        self._csvs_root = QTreeWidgetItem(["Imported Data"])
+        self._csvs_root.setFont(0, bold)
+        self._csvs_root.setData(0, Qt.UserRole, SECTION_CSVS)
+        self._tree.addTopLevelItem(self._csvs_root)
+        self._csvs_root.setExpanded(True)
 
     def set_files(self, names: list[str]) -> None:
-        self._files_list.blockSignals(True)
-        self._files_list.clear()
+        self._tree.blockSignals(True)
+        self._reports_root.takeChildren()
         for name in names:
-            self._files_list.addItem(QListWidgetItem(name))
-        self._files_list.blockSignals(False)
+            child = QTreeWidgetItem([name])
+            child.setData(0, Qt.UserRole, ("report", name))
+            self._reports_root.addChild(child)
+        self._tree.blockSignals(False)
 
     def set_csvs(self, names: list[str], summaries: dict[str, str] | None = None) -> None:
-        self._csv_list.clear()
+        self._csvs_root.takeChildren()
         summaries = summaries or {}
         for name in names:
-            item = QListWidgetItem(name)
-            if name in summaries and summaries[name]:
-                item.setToolTip(summaries[name])
-            self._csv_list.addItem(item)
+            child = QTreeWidgetItem([name])
+            child.setData(0, Qt.UserRole, ("csv", name))
+            if summaries.get(name):
+                child.setToolTip(0, summaries[name])
+            self._csvs_root.addChild(child)
 
     def set_active_file(self, name: str | None) -> None:
         if name is None:
-            self._files_list.clearSelection()
+            self._tree.clearSelection()
+            self._tree.setCurrentItem(None)
             return
-        for i in range(self._files_list.count()):
-            item = self._files_list.item(i)
-            if item.text() == name:
-                self._files_list.setCurrentItem(item)
+        for i in range(self._reports_root.childCount()):
+            child = self._reports_root.child(i)
+            if child.text(0) == name:
+                self._tree.setCurrentItem(child)
                 return
 
-    def _on_file_changed(self, current: QListWidgetItem | None, _previous: QListWidgetItem | None) -> None:
-        if current is not None:
-            self.file_selected.emit(current.text())
+    def _on_current_changed(
+        self, current: QTreeWidgetItem | None, _previous: QTreeWidgetItem | None
+    ) -> None:
+        if current is None:
+            return
+        data = current.data(0, Qt.UserRole)
+        if isinstance(data, tuple) and data[0] == "report":
+            self.file_selected.emit(data[1])
 
-    def _on_files_context_menu(self, pos) -> None:
-        item = self._files_list.itemAt(pos)
+    def _on_item_double_clicked(self, item: QTreeWidgetItem, _column: int) -> None:
+        data = item.data(0, Qt.UserRole)
+        if isinstance(data, tuple) and data[0] == "csv":
+            self.csv_preview_requested.emit(data[1])
+
+    def _on_context_menu(self, pos) -> None:
+        item = self._tree.itemAt(pos)
         if item is None:
             return
 
+        data = item.data(0, Qt.UserRole)
         menu = QMenu(self)
-        rename = QAction("Rename", menu)
-        duplicate = QAction("Duplicate", menu)
-        delete = QAction("Delete", menu)
 
-        rename.triggered.connect(lambda: self.file_rename_requested.emit(item.text()))
-        duplicate.triggered.connect(lambda: self.file_duplicate_requested.emit(item.text()))
-        delete.triggered.connect(lambda: self.file_delete_requested.emit(item.text()))
+        if data == SECTION_REPORTS:
+            action = QAction("New Report Builder File", menu)
+            action.triggered.connect(self.file_create_requested)
+            menu.addAction(action)
+        elif data == SECTION_CSVS:
+            action = QAction("Import CSV…", menu)
+            action.triggered.connect(self.csv_import_requested)
+            menu.addAction(action)
+        elif isinstance(data, tuple) and data[0] == "report":
+            name = data[1]
+            rename = QAction("Rename", menu)
+            duplicate = QAction("Duplicate", menu)
+            delete = QAction("Delete", menu)
+            rename.triggered.connect(lambda _=False, n=name: self.file_rename_requested.emit(n))
+            duplicate.triggered.connect(lambda _=False, n=name: self.file_duplicate_requested.emit(n))
+            delete.triggered.connect(lambda _=False, n=name: self.file_delete_requested.emit(n))
+            menu.addAction(rename)
+            menu.addAction(duplicate)
+            menu.addSeparator()
+            menu.addAction(delete)
+        elif isinstance(data, tuple) and data[0] == "csv":
+            name = data[1]
+            preview = QAction("Preview", menu)
+            preview.triggered.connect(lambda _=False, n=name: self.csv_preview_requested.emit(n))
+            menu.addAction(preview)
 
-        menu.addAction(rename)
-        menu.addAction(duplicate)
-        menu.addSeparator()
-        menu.addAction(delete)
-        menu.exec(self._files_list.mapToGlobal(pos))
-
-    def _on_csv_double_clicked(self, item: QListWidgetItem) -> None:
-        self.csv_preview_requested.emit(item.text())
+        if menu.actions():
+            menu.exec(self._tree.mapToGlobal(pos))

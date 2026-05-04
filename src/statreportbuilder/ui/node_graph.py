@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
 
 from src.statreportbuilder.core.blocks import Block
 from src.statreportbuilder.core.graph import Graph
-from src.statreportbuilder.ui.block_palette import BLOCK_MIME_TYPE, BlockPalette
+from src.statreportbuilder.ui.block_region import BLOCK_MIME_TYPE
 
 
 BLOCK_WIDTH = 180
@@ -455,7 +455,6 @@ def _port_index(ports, name: str) -> int | None:
 class NodeGraphBuilder(QWidget):
     node_selected = Signal(object)
     block_dropped = Signal(str, QPointF)
-    preset_requested = Signal(str)
     edge_requested = Signal(str, str, str, str)
     delete_requested = Signal(list, list)
 
@@ -466,10 +465,6 @@ class NodeGraphBuilder(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-
-        self.palette = BlockPalette()
-        self.palette.preset_requested.connect(self.preset_requested)
-        layout.addWidget(self.palette)
 
         self._canvas = GraphCanvas(self)
         self._canvas.selection_changed.connect(self.node_selected)
