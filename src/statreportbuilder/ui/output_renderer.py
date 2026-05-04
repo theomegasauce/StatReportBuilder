@@ -13,6 +13,11 @@ from PySide6.QtWidgets import (
 )
 
 
+HIDDEN_RESULT_KEYS = {
+    "tables", "plots", "text_sections", "interpretation",
+}
+
+
 class DataFrameModel(QAbstractTableModel):
     def __init__(self, df: pd.DataFrame, max_rows: int = 200) -> None:
         super().__init__()
@@ -76,7 +81,7 @@ def render_output(value: Any) -> QWidget:
 
     if isinstance(value, dict):
         browser = QTextBrowser()
-        browser.setHtml(_dict_to_html(value))
+        browser.setHtml(output_to_html(value))
         layout.addWidget(browser)
         return container
 
@@ -96,39 +101,16 @@ def render_error(message: str) -> QWidget:
     return label
 
 
-def output_to_html(value: Any, max_rows: int = 50) -> str:
+def output_to_html(
+    value: Any,
+    max_rows: int = 50,
+    include_interpretation: bool = False,
+) -> str:
     if value is None:
         return "<p style='color:#888;'><em>No output yet.</em></p>"
 
     if isinstance(value, pd.DataFrame):
-        if len(value) == 0:
-            return "<p style='color:#888;'><em>(empty dataframe)</em></p>"
-        df = value.head(max_rows)
-        rows = ["<table style='border-collapse:collapse; margin:6px 0;'>"]
-        rows.append("<tr>" + "".join(
-            f"<th style='border:1px solid #aaa; padding:4px 8px; background:#eee;'>{c}</th>"
-            for c in df.columns
-        ) + "</tr>")
-        for _, row in df.iterrows():
-            cells = []
-            for v in row:
-                if pd.isna(v):
-                    text = ""
-                elif isinstance(v, float):
-                    text = f"{v:.4f}"
-                else:
-                    text = str(v)
-                cells.append(
-                    f"<td style='border:1px solid #aaa; padding:4px 8px;'>{text}</td>"
-                )
-            rows.append("<tr>" + "".join(cells) + "</tr>")
-        rows.append("</table>")
-        if len(value) > max_rows:
-            rows.append(
-                f"<p style='color:#888; font-size:90%;'>"
-                f"Showing first {max_rows} of {len(value):,} rows.</p>"
-            )
-        return "".join(rows)
+        return _df_to_html(value, max_rows)
 
     if isinstance(value, str):
         if "<html" in value.lower() or "<body" in value.lower():
@@ -136,12 +118,106 @@ def output_to_html(value: Any, max_rows: int = 50) -> str:
         return f"<p>{value}</p>"
 
     if isinstance(value, dict):
-        return _dict_to_html(value)
+        return _structured_dict_to_html(
+            value, max_rows=max_rows, include_interpretation=include_interpretation
+        )
 
     return f"<pre>{value}</pre>"
 
 
-def _dict_to_html(data: dict) -> str:
+def _structured_dict_to_html(
+    data: dict,
+    max_rows: int = 50,
+    include_interpretation: bool = False,
+) -> str:
+    parts: list[str] = []
+
+    text_sections = data.get("text_sections")
+    if isinstance(text_sections, list):
+        for section in text_sections:
+            heading = str(section.get("heading") or "").strip()
+            body = str(section.get("body") or "").strip()
+            if heading:
+                parts.append(f"<h3 style='margin:8px 0 4px 0;'>{heading}</h3>")
+            if body:
+                parts.append(f"<p style='white-space:pre-wrap;margin:0 0 8px 0;'>{body}</p>")
+
+    tables = data.get("tables")
+    if isinstance(tables, list):
+        for table in tables:
+            name = str(table.get("name") or "").strip()
+            df = table.get("data")
+            if name:
+                parts.append(
+                    f"<p style='font-weight:bold;margin:8px 0 4px 0;'>{name}</p>"
+                )
+            if isinstance(df, pd.DataFrame):
+                parts.append(_df_to_html(df, max_rows))
+
+    plots = data.get("plots")
+    if isinstance(plots, list):
+        for plot in plots:
+            png = plot.get("png_base64")
+            name = str(plot.get("name") or "").strip()
+            if not png:
+                continue
+            if name:
+                parts.append(
+                    f"<p style='font-weight:bold;margin:8px 0 4px 0;'>{name}</p>"
+                )
+            parts.append(
+                f"<img src='data:image/png;base64,{png}' "
+                "style='max-width:100%;height:auto;display:block;margin:6px 0;'/>"
+            )
+
+    if include_interpretation:
+        interp = str(data.get("interpretation") or "").strip()
+        if interp:
+            parts.append(
+                f"<p style='margin:8px 0 0 0;'><em>{interp}</em></p>"
+            )
+
+    if parts:
+        return "".join(parts)
+
+    extras = {k: v for k, v in data.items() if k not in HIDDEN_RESULT_KEYS}
+    if extras:
+        return _scalar_dict_to_html(extras)
+    return "<p style='color:#888;'><em>No output yet.</em></p>"
+
+
+def _df_to_html(value: pd.DataFrame, max_rows: int = 50) -> str:
+    if len(value) == 0:
+        return "<p style='color:#888;'><em>(empty table)</em></p>"
+    df = value.head(max_rows)
+    rows = ["<table style='border-collapse:collapse; margin:6px 0;'>"]
+    rows.append("<tr>" + "".join(
+        f"<th style='border:1px solid #aaa; padding:4px 8px; background:#eee;'>{c}</th>"
+        for c in df.columns
+    ) + "</tr>")
+    for _, row in df.iterrows():
+        cells = []
+        for v in row:
+            if pd.isna(v):
+                text = ""
+            elif isinstance(v, float):
+                text = f"{v:.4f}"
+            else:
+                text = str(v)
+            cells.append(
+                f"<td style='border:1px solid #aaa; padding:4px 8px;'>{text}</td>"
+            )
+        rows.append("<tr>" + "".join(cells) + "</tr>")
+    rows.append("</table>")
+    if len(value) > max_rows:
+        rows.append(
+            f"<p style='color:#888; font-size:90%;'>"
+            f"Showing first {max_rows} of {len(value):,} rows.</p>"
+        )
+    return "".join(rows)
+
+
+def _scalar_dict_to_html(data: dict) -> str:
     rows = []
     for key, value in data.items():
         if isinstance(value, float):
@@ -157,3 +233,11 @@ def _dict_to_html(data: dict) -> str:
         + "".join(rows)
         + "</table>"
     )
+
+
+def extract_interpretation(value: Any) -> str:
+    if isinstance(value, dict):
+        text = value.get("interpretation")
+        if isinstance(text, str):
+            return text.strip()
+    return ""

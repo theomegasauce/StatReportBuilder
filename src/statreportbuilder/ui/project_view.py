@@ -25,25 +25,57 @@ from src.statreportbuilder.ui.csv_preview import CSVPreviewDialog, csv_summary
 from src.statreportbuilder.ui.draft_report import (
     CompiledReportDialog,
     DraftReportPane,
+    RenderOptionsRegion,
     compile_report_html,
 )
 from src.statreportbuilder.ui.node_graph import BLOCK_HEIGHT, BLOCK_WIDTH, NodeGraphBuilder
 from src.statreportbuilder.ui.project_directory import ProjectDirectory
 
 
-PRESET_GRAPHS = {
-    "two_sample_ttest": [
+PRESET_GRAPHS: dict[str, list[tuple[str, str]]] = {
+    "two_mean_ttest_full": [
         ("csv_loader", "loader"),
-        ("two_sample_ttest", "ttest"),
-        ("report", "report"),
+        ("dataset_variable_table", "variables"),
+        ("dataset_numerical_stats", "numstats"),
+        ("normality_test", "normality"),
+        ("qq_plot", "qq"),
+        ("variance_test", "variance"),
+        ("two_mean_ttest", "ttest"),
+        ("confidence_interval", "ci"),
+        ("boxplot", "box"),
+        ("ci_plot", "ciplot"),
+        ("action_impact", "action"),
     ],
 }
 
-PRESET_EDGES = {
-    "two_sample_ttest": [
+PRESET_EDGES: dict[str, list[tuple[int, str, int, str]]] = {
+    "two_mean_ttest_full": [
         (0, "dataframe", 1, "dataframe"),
-        (1, "result", 2, "result"),
+        (0, "dataframe", 2, "dataframe"),
+        (0, "dataframe", 3, "dataframe"),
+        (0, "dataframe", 4, "dataframe"),
+        (0, "dataframe", 5, "dataframe"),
+        (0, "dataframe", 6, "dataframe"),
+        (0, "dataframe", 7, "dataframe"),
+        (0, "dataframe", 8, "dataframe"),
+        (0, "dataframe", 9, "dataframe"),
     ],
+}
+
+PRESET_LAYOUT: dict[str, dict[str, tuple[float, float]]] = {
+    "two_mean_ttest_full": {
+        "loader": (0, 0),
+        "variables": (1, -2),
+        "numstats": (1, -1),
+        "normality": (1, 0),
+        "qq": (1, 1),
+        "variance": (1, 2),
+        "ttest": (2, -1),
+        "ci": (2, 0),
+        "box": (2, 1),
+        "ciplot": (2, 2),
+        "action": (3, 0),
+    },
 }
 
 
@@ -73,6 +105,7 @@ class ProjectView(QWidget):
         layout.setSpacing(0)
 
         self.block_region = BlockRegion()
+        self.render_options = RenderOptionsRegion()
         self.directory = ProjectDirectory()
         self.block_edit = BlockEditPane()
         self.graph_builder = NodeGraphBuilder()
@@ -84,7 +117,7 @@ class ProjectView(QWidget):
         self._left_splitter.addWidget(self.block_edit)
         self._left_splitter.setStretchFactor(0, 2)
         self._left_splitter.setStretchFactor(1, 1)
-        self._left_splitter.setSizes([400, 220])
+        self._left_splitter.setSizes([460, 240])
         self.block_edit.hide()
 
         self._splitter = QSplitter(Qt.Horizontal)
@@ -95,9 +128,30 @@ class ProjectView(QWidget):
         self._splitter.setStretchFactor(0, 0)
         self._splitter.setStretchFactor(1, 3)
         self._splitter.setStretchFactor(2, 2)
-        self._splitter.setSizes([260, 760, 480])
+        self._splitter.setSizes([240, 760, 500])
 
-        layout.addWidget(self.block_region)
+        self._top_splitter = QSplitter(Qt.Horizontal)
+        self._top_splitter.setChildrenCollapsible(False)
+        self._top_splitter.setHandleWidth(0)
+
+        self._block_region_host = QWidget()
+        block_host_layout = QVBoxLayout(self._block_region_host)
+        block_host_layout.setContentsMargins(0, 0, 0, 0)
+        block_host_layout.setSpacing(0)
+        block_host_layout.addWidget(self.block_region)
+
+        self._top_splitter.addWidget(self._block_region_host)
+        self._top_splitter.addWidget(self.render_options)
+        self._top_splitter.setSizes([1000, 500])
+
+        for handle_idx in range(1, self._top_splitter.count()):
+            handle = self._top_splitter.handle(handle_idx)
+            if handle is not None:
+                handle.setEnabled(False)
+
+        self._splitter.splitterMoved.connect(self._sync_top_splitter)
+
+        layout.addWidget(self._top_splitter)
         layout.addWidget(self._splitter, stretch=1)
 
         self._wire_signals()
@@ -123,9 +177,9 @@ class ProjectView(QWidget):
         self.block_edit.parameter_changed.connect(self._on_parameter_changed)
         self.block_edit.close_requested.connect(self._close_block_edit)
 
-        self.draft_pane.setting_changed.connect(self._on_setting_changed)
         self.draft_pane.override_changed.connect(self._on_override_changed)
-        self.draft_pane.compile_requested.connect(self._on_compile_requested)
+        self.render_options.setting_changed.connect(self._on_setting_changed)
+        self.render_options.compile_requested.connect(self._on_compile_requested)
 
     @property
     def project(self) -> Project:
@@ -170,7 +224,25 @@ class ProjectView(QWidget):
         self._results = self._graph.execute({"project": self._project})
 
     def _refresh_draft(self) -> None:
+        settings = (self._graph.render_settings if self._graph else {}) or {}
+        self.render_options.apply_settings(settings)
         self.draft_pane.set_snapshot(self._graph, self._results)
+
+    def _sync_top_splitter(self, *_args: Any) -> None:
+        sizes = self._splitter.sizes()
+        if len(sizes) < 3:
+            return
+        left = sizes[0] + sizes[1]
+        right = sizes[2]
+        self._top_splitter.setSizes([left, right])
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self._sync_top_splitter()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._sync_top_splitter()
 
     def _selected_block_context(self) -> BlockEditContext | None:
         if self._graph is None or self._selected_node is None:
@@ -190,7 +262,7 @@ class ProjectView(QWidget):
         if ctx is not None:
             if not self.block_edit.isVisible():
                 self.block_edit.show()
-                self._left_splitter.setSizes([400, 220])
+                self._left_splitter.setSizes([460, 240])
 
     def _close_block_edit(self) -> None:
         self.block_edit.hide()
@@ -273,24 +345,27 @@ class ProjectView(QWidget):
             return
         block_specs = PRESET_GRAPHS.get(preset_id)
         edge_specs = PRESET_EDGES.get(preset_id, [])
+        layout = PRESET_LAYOUT.get(preset_id, {})
         if not block_specs:
             return
 
         self._graph.positions = self.graph_builder.collect_positions()
         center = self.graph_builder.viewport_center_in_scene()
-        spacing = BLOCK_WIDTH + 60
-        total_width = spacing * (len(block_specs) - 1)
-        start_x = center.x() - total_width / 2 - BLOCK_WIDTH / 2
-        y = center.y() - BLOCK_HEIGHT / 2
+        col_spacing = BLOCK_WIDTH + 80
+        row_spacing = BLOCK_HEIGHT + 40
 
         new_ids: list[str] = []
-        for index, (type_id, _hint) in enumerate(block_specs):
+        for index, (type_id, hint) in enumerate(block_specs):
             block_cls = BLOCK_REGISTRY.get(type_id)
             if block_cls is None:
                 continue
             new_id = _next_node_id(self._graph, type_id)
             self._graph.nodes[new_id] = block_cls(new_id)
-            self._graph.positions[new_id] = (start_x + spacing * index, y)
+            col, row = layout.get(hint, (index, 0))
+            self._graph.positions[new_id] = (
+                center.x() + col * col_spacing - BLOCK_WIDTH / 2,
+                center.y() + row * row_spacing - BLOCK_HEIGHT / 2,
+            )
             new_ids.append(new_id)
 
         for src_idx, src_port, dst_idx, dst_port in edge_specs:
@@ -352,7 +427,7 @@ class ProjectView(QWidget):
         for nid in node_ids:
             self._graph.nodes.pop(nid, None)
             self._graph.positions.pop(nid, None)
-            self._graph.draft_text.pop(nid, None)
+            self._graph.block_overrides.pop(nid, None)
 
         edge_key_set = {tuple(k) for k in edge_keys}
         self._graph.edges = [

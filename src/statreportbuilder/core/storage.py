@@ -7,8 +7,7 @@ from pathlib import Path
 
 from src.statreportbuilder.core.blocks import (
     CSVLoaderBlock,
-    ReportBlock,
-    TwoSampleTTestBlock,
+    TwoMeanTTestBlock,
 )
 from src.statreportbuilder.core.graph import Edge, Graph
 
@@ -149,13 +148,10 @@ def _slug(name: str) -> str:
 def _two_sample_ttest_template() -> Graph:
     g = Graph()
     g.nodes["loader"] = CSVLoaderBlock("loader")
-    g.nodes["ttest"] = TwoSampleTTestBlock("ttest")
-    g.nodes["report"] = ReportBlock("report")
+    g.nodes["ttest"] = TwoMeanTTestBlock("ttest")
     g.edges.append(Edge("loader", "dataframe", "ttest", "dataframe"))
-    g.edges.append(Edge("ttest", "result", "report", "result"))
     g.positions = {
         "loader": (-300.0, -40.0),
         "ttest": (-20.0, -40.0),
-        "report": (260.0, -40.0),
     }
     return g

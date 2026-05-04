@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPlainTextEdit,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -78,6 +79,16 @@ class ParameterForm(QWidget):
             except (TypeError, ValueError):
                 w.setValue(0.0)
             w.valueChanged.connect(lambda v, n=spec.name: self._emit(n, float(v)))
+            return w
+
+        if spec.kind == "integer":
+            w = QSpinBox()
+            w.setRange(0, 10_000)
+            try:
+                w.setValue(int(current))
+            except (TypeError, ValueError):
+                w.setValue(int(spec.default or 0))
+            w.valueChanged.connect(lambda v, n=spec.name: self._emit(n, int(v)))
             return w
 
         if spec.kind == "boolean":

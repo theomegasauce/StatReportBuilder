@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QPainter, QPainterPath, QPen
+from PySide6.QtGui import QBrush, QColor, QKeySequence, QPainter, QPainterPath, QPen, QShortcut
 from PySide6.QtWidgets import (
     QGraphicsItem,
     QGraphicsPathItem,
@@ -242,6 +242,7 @@ class GraphCanvas(QGraphicsView):
         self.scale(factor, factor)
 
     def mousePressEvent(self, event) -> None:
+        self.setFocus(Qt.MouseFocusReason)
         if event.button() == Qt.MiddleButton:
             self._panning = True
             self._pan_start = event.position()
@@ -284,25 +285,30 @@ class GraphCanvas(QGraphicsView):
 
     def keyPressEvent(self, event) -> None:
         if event.key() in (Qt.Key_Delete, Qt.Key_Backspace):
-            node_ids: list[str] = []
-            edge_keys: list[tuple[str, str, str, str]] = []
-            for item in self._scene.selectedItems():
-                if isinstance(item, BlockItem):
-                    node_ids.append(item.block.node_id)
-                elif isinstance(item, EdgeItem):
-                    edge_keys.append(
-                        (
-                            item.src.block.node_id,
-                            item.src_port_name,
-                            item.dst.block.node_id,
-                            item.dst_port_name,
-                        )
-                    )
-            if node_ids or edge_keys:
-                self.delete_requested.emit(node_ids, edge_keys)
+            if self.delete_selected():
                 event.accept()
                 return
         super().keyPressEvent(event)
+
+    def delete_selected(self) -> bool:
+        node_ids: list[str] = []
+        edge_keys: list[tuple[str, str, str, str]] = []
+        for item in self._scene.selectedItems():
+            if isinstance(item, BlockItem):
+                node_ids.append(item.block.node_id)
+            elif isinstance(item, EdgeItem):
+                edge_keys.append(
+                    (
+                        item.src.block.node_id,
+                        item.src_port_name,
+                        item.dst.block.node_id,
+                        item.dst_port_name,
+                    )
+                )
+        if not node_ids and not edge_keys:
+            return False
+        self.delete_requested.emit(node_ids, edge_keys)
+        return True
 
     def begin_wire(self, src_block: BlockItem, src_port_idx: int) -> None:
         self._wire_src = (src_block, src_port_idx)
@@ -438,6 +444,8 @@ class GraphCanvas(QGraphicsView):
     def select_node(self, node_id: str | None) -> None:
         for nid, item in self._block_items.items():
             item.setSelected(nid == node_id)
+        if node_id is not None:
+            self.setFocus(Qt.OtherFocusReason)
 
     def refresh_block(self, node_id: str) -> None:
         item = self._block_items.get(node_id)
@@ -472,6 +480,11 @@ class NodeGraphBuilder(QWidget):
         self._canvas.edge_requested.connect(self.edge_requested)
         self._canvas.delete_requested.connect(self.delete_requested)
         layout.addWidget(self._canvas, stretch=1)
+
+        for key in (QKeySequence(Qt.Key_Delete), QKeySequence(Qt.Key_Backspace)):
+            sc = QShortcut(key, self._canvas)
+            sc.setContext(Qt.WidgetWithChildrenShortcut)
+            sc.activated.connect(self._canvas.delete_selected)
 
         self._graph: Graph | None = None
 

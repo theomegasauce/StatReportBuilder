@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QSpinBox,
     QTextBrowser,
     QToolButton,
@@ -25,12 +26,16 @@ from PySide6.QtWidgets import (
 
 from src.statreportbuilder.core.blocks import Block
 from src.statreportbuilder.core.graph import Graph
-from src.statreportbuilder.ui.output_renderer import output_to_html
+from src.statreportbuilder.ui.output_renderer import (
+    extract_interpretation,
+    output_to_html,
+)
 
 
 PAGE_FORMATS = ["A4", "Letter", "Legal"]
 OVERRIDE_TITLE = "title"
 OVERRIDE_NARRATIVE = "narrative"
+NARRATIVE_SEEDED_FLAG = "narrative_seeded"
 
 
 @dataclass
@@ -57,6 +62,14 @@ def _effective_title(block: Block, overrides: dict[str, str]) -> str:
     return params_title or block.title
 
 
+def _effective_narrative(
+    snapshot: "BlockSnapshot",
+) -> str:
+    if OVERRIDE_NARRATIVE in snapshot.overrides:
+        return snapshot.overrides.get(OVERRIDE_NARRATIVE, "")
+    return extract_interpretation(_primary_output(snapshot.block, snapshot.result))
+
+
 class _BlockCard(QFrame):
     override_changed = Signal(str, str, str)
 
@@ -64,6 +77,7 @@ class _BlockCard(QFrame):
         super().__init__(parent)
         self._node_id = snapshot.node_id
         self.setFrameShape(QFrame.StyledPanel)
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
         self.setStyleSheet(
             "QFrame { background: #ffffff; border: 1px solid #d4d6da; border-radius: 6px; }"
         )
@@ -95,11 +109,11 @@ class _BlockCard(QFrame):
         layout.addLayout(header)
 
         self._narrative = QPlainTextEdit()
-        self._narrative.setPlainText(snapshot.overrides.get(OVERRIDE_NARRATIVE, ""))
+        self._narrative.setPlainText(_effective_narrative(snapshot))
         self._narrative.setPlaceholderText(
             "Narrative for this section… (included verbatim above the block output)"
         )
-        self._narrative.setFixedHeight(60)
+        self._narrative.setFixedHeight(80)
         self._narrative.setStyleSheet(
             "QPlainTextEdit { border: 1px solid #d4d6da; border-radius: 4px; "
             "background: #fafbfc; }"
@@ -146,10 +160,82 @@ class _BlockCard(QFrame):
         )
 
 
-class DraftReportPane(QWidget):
+class RenderOptionsRegion(QWidget):
     setting_changed = Signal(str, object)
-    override_changed = Signal(str, str, str)
     compile_requested = Signal()
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("RenderOptionsRegion")
+        self.setFixedHeight(100)
+        self.setStyleSheet(
+            "#RenderOptionsRegion { background: #f3f4f6; border-bottom: 1px solid #d4d6da; }"
+        )
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(12, 8, 12, 8)
+        outer.setSpacing(2)
+
+        label = QLabel("Render Format")
+        label.setStyleSheet("color: #555; font-size: 11px; font-weight: bold;")
+        outer.addWidget(label)
+
+        bar = QHBoxLayout()
+        bar.setSpacing(8)
+
+        bar.addWidget(QLabel("Font size:"))
+        self._font_size = QSpinBox()
+        self._font_size.setRange(6, 36)
+        self._font_size.setValue(11)
+        self._font_size.setSuffix(" pt")
+        self._font_size.valueChanged.connect(
+            lambda v: self._emit_setting("font_size_pt", int(v))
+        )
+        bar.addWidget(self._font_size)
+
+        bar.addWidget(QLabel("Page:"))
+        self._page_format = QComboBox()
+        self._page_format.addItems(PAGE_FORMATS)
+        self._page_format.currentTextChanged.connect(
+            lambda v: self._emit_setting("page_format", v)
+        )
+        bar.addWidget(self._page_format)
+
+        bar.addStretch()
+
+        self._compile_btn = QPushButton("Compile / Render")
+        self._compile_btn.setStyleSheet(
+            "QPushButton { background: #4a90e2; color: white; padding: 4px 14px; "
+            "border-radius: 4px; font-weight: bold; }"
+            "QPushButton:hover { background: #3a78c2; }"
+        )
+        self._compile_btn.clicked.connect(self.compile_requested)
+        bar.addWidget(self._compile_btn)
+
+        outer.addLayout(bar)
+        outer.addStretch()
+
+        self._suppress_settings = False
+
+    def apply_settings(self, settings: dict[str, Any]) -> None:
+        self._suppress_settings = True
+        try:
+            self._font_size.setValue(int(settings.get("font_size_pt", 11)))
+            fmt = str(settings.get("page_format", "A4"))
+            idx = self._page_format.findText(fmt)
+            if idx >= 0:
+                self._page_format.setCurrentIndex(idx)
+        finally:
+            self._suppress_settings = False
+
+    def _emit_setting(self, name: str, value: Any) -> None:
+        if self._suppress_settings:
+            return
+        self.setting_changed.emit(name, value)
+
+
+class DraftReportPane(QWidget):
+    override_changed = Signal(str, str, str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -159,13 +245,14 @@ class DraftReportPane(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        root.addWidget(self._build_toolbar())
-
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
         self._scroll.setFrameShape(QScrollArea.NoFrame)
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
 
         self._content = QWidget()
+        self._content.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
         self._content_layout = QVBoxLayout(self._content)
         self._content_layout.setContentsMargins(12, 12, 12, 12)
         self._content_layout.setSpacing(10)
@@ -173,60 +260,9 @@ class DraftReportPane(QWidget):
         self._scroll.setWidget(self._content)
         root.addWidget(self._scroll, stretch=1)
 
-        self._suppress_settings = False
-
-    def _build_toolbar(self) -> QWidget:
-        bar = QWidget()
-        bar.setStyleSheet("background: #f3f4f6; border-bottom: 1px solid #d4d6da;")
-        layout = QHBoxLayout(bar)
-        layout.setContentsMargins(8, 6, 8, 6)
-        layout.setSpacing(8)
-
-        layout.addWidget(QLabel("Font size:"))
-        self._font_size = QSpinBox()
-        self._font_size.setRange(6, 36)
-        self._font_size.setValue(11)
-        self._font_size.setSuffix(" pt")
-        self._font_size.valueChanged.connect(
-            lambda v: self._emit_setting("font_size_pt", int(v))
-        )
-        layout.addWidget(self._font_size)
-
-        layout.addWidget(QLabel("Page:"))
-        self._page_format = QComboBox()
-        self._page_format.addItems(PAGE_FORMATS)
-        self._page_format.currentTextChanged.connect(
-            lambda v: self._emit_setting("page_format", v)
-        )
-        layout.addWidget(self._page_format)
-
-        layout.addStretch()
-
-        self._compile_btn = QPushButton("Compile / Render")
-        self._compile_btn.setStyleSheet(
-            "QPushButton { background: #4a90e2; color: white; padding: 4px 14px; "
-            "border-radius: 4px; font-weight: bold; }"
-            "QPushButton:hover { background: #3a78c2; }"
-        )
-        self._compile_btn.clicked.connect(self.compile_requested)
-        layout.addWidget(self._compile_btn)
-
-        return bar
-
     def set_snapshot(
         self, graph: Graph | None, results: dict[str, dict[str, Any]] | None
     ) -> None:
-        self._suppress_settings = True
-        try:
-            settings = (graph.render_settings if graph else {}) or {}
-            self._font_size.setValue(int(settings.get("font_size_pt", 11)))
-            fmt = str(settings.get("page_format", "A4"))
-            idx = self._page_format.findText(fmt)
-            if idx >= 0:
-                self._page_format.setCurrentIndex(idx)
-        finally:
-            self._suppress_settings = False
-
         self._clear_cards()
 
         if graph is None or not graph.nodes:
@@ -257,11 +293,6 @@ class DraftReportPane(QWidget):
             w = item.widget()
             if w is not None:
                 w.deleteLater()
-
-    def _emit_setting(self, name: str, value: Any) -> None:
-        if self._suppress_settings:
-            return
-        self.setting_changed.emit(name, value)
 
 
 def compile_report_html(
@@ -301,17 +332,19 @@ def compile_report_html(
             continue
 
         value = _primary_output(block, result)
-        if value is None and not overrides.get(OVERRIDE_NARRATIVE):
+        snapshot = BlockSnapshot(
+            node_id=nid, block=block, result=result, overrides=overrides,
+        )
+        narrative = _effective_narrative(snapshot).strip()
+        if value is None and not narrative:
             continue
 
         title = _effective_title(block, overrides)
-        narrative = (overrides.get(OVERRIDE_NARRATIVE) or "").strip()
-
         section = [f"<div class='section'><h2>{title}</h2>"]
         if narrative:
             section.append(f"<div class='narrative'>{narrative}</div>")
         if value is not None:
-            section.append(output_to_html(value))
+            section.append(output_to_html(value, include_interpretation=False))
         section.append("</div>")
         body_parts.append("".join(section))
         rendered_any = True

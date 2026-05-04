@@ -88,3 +88,6 @@ logs/
 /*.pdf
 /*.html
 !docs/**/*.html
+
+# User-generated project data
+Projects/
