@@ -22,6 +22,13 @@ from src.statreportbuilder.core.blocks import (
     CATEGORY_ORDER,
     PALETTE_BLOCK_TYPE_IDS,
 )
+from src.statreportbuilder.ui.theme import (
+    BG_REGION,
+    BORDER,
+    PRIMARY,
+    TEXT_MUTED,
+    category_color,
+)
 
 
 BLOCK_MIME_TYPE = "application/x-statreportbuilder-block"
@@ -36,11 +43,21 @@ PRESETS_BY_CATEGORY: dict[str, list[tuple[str, str, str]]] = {
 
 class DraggableBlockCard(QFrame):
     def __init__(
-        self, type_id: str, title: str, subtitle: str = "", parent: QWidget | None = None
+        self,
+        type_id: str,
+        title: str,
+        subtitle: str = "",
+        category: str | None = None,
+        parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._type_id = type_id
         self._drag_start = None
+
+        bg = category_color(category, "bg") if category else "#ffffff"
+        bg_hover = category_color(category, "bg_hover") if category else "#f0f6ff"
+        border = category_color(category, "border") if category else "#c8c8c8"
+        accent = category_color(category, "accent") if category else PRIMARY
 
         self.setObjectName("DraggableBlockCard")
         self.setFrameShape(QFrame.StyledPanel)
@@ -48,8 +65,10 @@ class DraggableBlockCard(QFrame):
         self.setCursor(Qt.OpenHandCursor)
         self.setToolTip(f"Drag onto canvas to add a {title} block")
         self.setStyleSheet(
-            "#DraggableBlockCard { background: #ffffff; border: 1px solid #c8c8c8; border-radius: 6px; }"
-            "#DraggableBlockCard:hover { background: #f0f6ff; border-color: #4a90e2; }"
+            f"#DraggableBlockCard {{ background: {bg}; border: 1px solid {border}; "
+            f"border-left: 4px solid {accent}; border-radius: 6px; }}"
+            f"#DraggableBlockCard:hover {{ background: {bg_hover}; border-color: {accent}; "
+            f"border-left: 4px solid {accent}; }}"
         )
 
         layout = QVBoxLayout(self)
@@ -61,11 +80,12 @@ class DraggableBlockCard(QFrame):
         font.setBold(True)
         title_label.setFont(font)
         title_label.setWordWrap(True)
+        title_label.setStyleSheet(f"color: {accent}; background: transparent;")
         layout.addWidget(title_label)
 
         if subtitle:
             sub = QLabel(subtitle)
-            sub.setStyleSheet("color: #777; font-size: 10px;")
+            sub.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 10px; background: transparent;")
             layout.addWidget(sub)
 
     def mousePressEvent(self, event) -> None:
@@ -92,15 +112,29 @@ class PresetCard(QFrame):
     clicked = Signal(str)
 
     def __init__(
-        self, preset_id: str, title: str, subtitle: str = "", parent: QWidget | None = None
+        self,
+        preset_id: str,
+        title: str,
+        subtitle: str = "",
+        category: str | None = None,
+        parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._preset_id = preset_id
         self.setFixedSize(220, 56)
         self.setCursor(Qt.PointingHandCursor)
+
+        bg = category_color(category, "bg") if category else "#e6f1fb"
+        bg_hover = category_color(category, "bg_hover") if category else "#d4e7f7"
+        border = category_color(category, "border") if category else "#7fb1de"
+        accent = category_color(category, "accent") if category else PRIMARY
+
+        self.setObjectName("PresetCard")
         self.setStyleSheet(
-            "PresetCard { background: #fff7ec; border: 1px solid #d8b87a; border-radius: 6px; }"
-            "PresetCard:hover { background: #fdecc8; border-color: #b88a30; }"
+            f"#PresetCard {{ background: {bg}; border: 1px solid {border}; "
+            f"border-left: 4px solid {accent}; border-radius: 6px; }}"
+            f"#PresetCard:hover {{ background: {bg_hover}; border-color: {accent}; "
+            f"border-left: 4px solid {accent}; }}"
         )
         self.setToolTip(f"Click to insert the {title} preset")
 
@@ -108,16 +142,17 @@ class PresetCard(QFrame):
         layout.setContentsMargins(10, 6, 10, 6)
         layout.setSpacing(0)
 
-        title_label = QLabel(title)
+        title_label = QLabel("★  " + title)
         font = title_label.font()
         font.setBold(True)
         title_label.setFont(font)
         title_label.setWordWrap(True)
+        title_label.setStyleSheet(f"color: {accent}; background: transparent;")
         layout.addWidget(title_label)
 
         if subtitle:
             sub = QLabel(subtitle)
-            sub.setStyleSheet("color: #876523; font-size: 10px;")
+            sub.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 10px; background: transparent;")
             sub.setWordWrap(True)
             layout.addWidget(sub)
 
@@ -169,7 +204,7 @@ class BlockRegion(QWidget):
         self.setObjectName("BlockRegion")
         self.setFixedHeight(120)
         self.setStyleSheet(
-            "#BlockRegion { background: #f3f4f6; border-bottom: 1px solid #d4d6da; }"
+            f"#BlockRegion {{ background: {BG_REGION}; border-bottom: 1px solid {BORDER}; }}"
         )
 
         outer = QVBoxLayout(self)
@@ -185,14 +220,18 @@ class BlockRegion(QWidget):
         self._tab_group.setExclusive(True)
 
         for index, category in enumerate(CATEGORY_ORDER):
+            accent = category_color(category, "accent")
+            bg = category_color(category, "bg")
             btn = QPushButton(CATEGORY_LABELS[category])
             btn.setCheckable(True)
             btn.setCursor(Qt.PointingHandCursor)
             btn.setStyleSheet(
                 "QPushButton { background: transparent; border: 1px solid transparent; "
-                "padding: 4px 12px; border-radius: 4px; color: #555; font-weight: bold; }"
-                "QPushButton:hover { background: #e6ebf2; }"
-                "QPushButton:checked { background: #ffffff; border-color: #b8c2cf; color: #1f5fa8; }"
+                f"padding: 4px 12px; border-radius: 4px; color: {TEXT_MUTED}; font-weight: bold; "
+                f"border-bottom: 3px solid transparent; }}"
+                f"QPushButton:hover {{ background: {bg}; color: {accent}; }}"
+                f"QPushButton:checked {{ background: #ffffff; color: {accent}; "
+                f"border-bottom: 3px solid {accent}; }}"
             )
             self._tab_group.addButton(btn, index)
             tab_bar.addWidget(btn)
@@ -211,7 +250,7 @@ class BlockRegion(QWidget):
         cards: list[QWidget] = []
 
         for preset_id, title, subtitle in PRESETS_BY_CATEGORY.get(category, []):
-            card = PresetCard(preset_id, title, subtitle)
+            card = PresetCard(preset_id, title, subtitle, category=category)
             card.clicked.connect(self.preset_requested)
             cards.append(card)
 
@@ -219,6 +258,6 @@ class BlockRegion(QWidget):
             cls = BLOCK_REGISTRY.get(type_id)
             if cls is None:
                 continue
-            cards.append(DraggableBlockCard(type_id, cls.title))
+            cards.append(DraggableBlockCard(type_id, cls.title, category=category))
 
         return _CategoryRow(cards)

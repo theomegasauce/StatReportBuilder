@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 from src.statreportbuilder.core.blocks import Block
 from src.statreportbuilder.core.graph import Graph
 from src.statreportbuilder.ui.block_region import BLOCK_MIME_TYPE
+from src.statreportbuilder.ui.theme import category_color
 
 
 BLOCK_WIDTH = 180
@@ -38,46 +39,53 @@ class BlockItem(QGraphicsItem):
         painter.setRenderHint(QPainter.Antialiasing)
         rect = QRectF(0, 0, BLOCK_WIDTH, BLOCK_HEIGHT)
 
+        category = getattr(self.block, "category", "")
+        header_bg = QColor(category_color(category, "header_bg"))
+        accent = QColor(category_color(category, "accent"))
+        border_color = QColor(category_color(category, "border"))
+
         if self.isSelected():
-            painter.setPen(QPen(QColor("#0066cc"), 2))
+            painter.setPen(QPen(accent, 2))
         else:
-            painter.setPen(QPen(QColor("#888"), 1))
+            painter.setPen(QPen(border_color, 1))
         painter.setBrush(QBrush(QColor("#ffffff")))
         painter.drawRoundedRect(rect, 8, 8)
 
         header_rect = QRectF(0, 0, BLOCK_WIDTH, 26)
         painter.setPen(Qt.NoPen)
-        painter.setBrush(QBrush(QColor("#eef2f7")))
+        painter.setBrush(QBrush(header_bg))
         path = QPainterPath()
         path.addRoundedRect(header_rect, 8, 8)
         painter.drawPath(path)
-        painter.fillRect(QRectF(0, 18, BLOCK_WIDTH, 8), QColor("#eef2f7"))
+        painter.fillRect(QRectF(0, 18, BLOCK_WIDTH, 8), header_bg)
 
-        painter.setPen(QColor("#222"))
+        painter.fillRect(QRectF(0, 0, 4, BLOCK_HEIGHT), accent)
+
+        painter.setPen(accent)
         font = painter.font()
         font.setBold(True)
         painter.setFont(font)
-        painter.drawText(QRectF(10, 4, BLOCK_WIDTH - 20, 20), Qt.AlignVCenter, self.block.title)
+        painter.drawText(QRectF(12, 4, BLOCK_WIDTH - 22, 20), Qt.AlignVCenter, self.block.title)
 
         font.setBold(False)
         painter.setFont(font)
-        painter.setPen(QColor("#666"))
+        painter.setPen(QColor("#5e6b7a"))
         painter.drawText(
-            QRectF(10, 32, BLOCK_WIDTH - 20, 50),
+            QRectF(12, 32, BLOCK_WIDTH - 22, 50),
             Qt.AlignTop | Qt.AlignLeft,
             self._summary(),
         )
 
         for i, _ in enumerate(self.block.inputs):
             pos = self.input_port_pos(i)
-            painter.setPen(QPen(QColor("#3a6db1"), 1))
+            painter.setPen(QPen(QColor("#1f5fa8"), 1))
             painter.setBrush(QBrush(QColor("#4a90e2")))
             painter.drawEllipse(pos, PORT_RADIUS, PORT_RADIUS)
 
         for i, _ in enumerate(self.block.outputs):
             pos = self.output_port_pos(i)
-            painter.setPen(QPen(QColor("#a06a30"), 1))
-            painter.setBrush(QBrush(QColor("#e2904a")))
+            painter.setPen(QPen(accent.darker(130), 1))
+            painter.setBrush(QBrush(accent))
             painter.drawEllipse(pos, PORT_RADIUS, PORT_RADIUS)
 
     def _summary(self) -> str:
@@ -176,7 +184,7 @@ class EdgeItem(QGraphicsPathItem):
         self.dst_port_name = dst_port_name
 
         self.setFlag(QGraphicsItem.ItemIsSelectable, True)
-        self.setPen(QPen(QColor("#666"), 2))
+        self.setPen(QPen(QColor("#7c93ad"), 2))
         self.setZValue(-1)
         src_block.register_edge(self)
         dst_block.register_edge(self)
@@ -199,9 +207,9 @@ class EdgeItem(QGraphicsPathItem):
     def itemChange(self, change, value):
         if change == QGraphicsItem.ItemSelectedHasChanged:
             if value:
-                self.setPen(QPen(QColor("#0066cc"), 3))
+                self.setPen(QPen(QColor("#1f5fa8"), 3))
             else:
-                self.setPen(QPen(QColor("#666"), 2))
+                self.setPen(QPen(QColor("#7c93ad"), 2))
         return super().itemChange(change, value)
 
     def detach(self) -> None:
@@ -226,7 +234,7 @@ class GraphCanvas(QGraphicsView):
         self.setDragMode(QGraphicsView.RubberBandDrag)
         self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
         self.setResizeAnchor(QGraphicsView.AnchorUnderMouse)
-        self.setBackgroundBrush(QColor("#f5f5f5"))
+        self.setBackgroundBrush(QColor("#eef3fa"))
         self.setAcceptDrops(True)
         self.setFocusPolicy(Qt.StrongFocus)
 
@@ -313,7 +321,7 @@ class GraphCanvas(QGraphicsView):
     def begin_wire(self, src_block: BlockItem, src_port_idx: int) -> None:
         self._wire_src = (src_block, src_port_idx)
         self._wire_temp = QGraphicsPathItem()
-        self._wire_temp.setPen(QPen(QColor("#0066cc"), 2, Qt.DashLine))
+        self._wire_temp.setPen(QPen(QColor("#1f5fa8"), 2, Qt.DashLine))
         self._wire_temp.setZValue(10)
         self._scene.addItem(self._wire_temp)
         self._update_wire_temp(src_block.output_port_scene_pos(src_port_idx))

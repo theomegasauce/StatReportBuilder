@@ -39,7 +39,7 @@ class ProjectDirectory(QWidget):
         header = QHBoxLayout()
         header.setContentsMargins(4, 0, 4, 0)
         title = QLabel("Project")
-        title.setStyleSheet("font-weight: bold; padding: 4px;")
+        title.setStyleSheet("font-weight: bold; padding: 4px; color: #1f5fa8; font-size: 13px;")
         header.addWidget(title)
         header.addStretch()
 

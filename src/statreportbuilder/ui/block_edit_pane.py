@@ -32,7 +32,7 @@ class BlockEditPane(QWidget):
         super().__init__(parent)
         self.setObjectName("BlockEditPane")
         self.setStyleSheet(
-            "#BlockEditPane { background: #fafbfc; border-top: 1px solid #d4d6da; }"
+            "#BlockEditPane { background: #fafcff; border-top: 1px solid #cdd7e3; }"
         )
 
         root = QVBoxLayout(self)
@@ -40,11 +40,13 @@ class BlockEditPane(QWidget):
         root.setSpacing(0)
 
         header = QWidget()
-        header.setStyleSheet("background: #eef2f7;")
+        header.setStyleSheet(
+            "background: #eaf1f9; border-bottom: 1px solid #cdd7e3;"
+        )
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(8, 4, 4, 4)
         self._title = QLabel("Block options")
-        self._title.setStyleSheet("font-weight: bold;")
+        self._title.setStyleSheet("font-weight: bold; color: #1f5fa8;")
         header_layout.addWidget(self._title)
         header_layout.addStretch()
 

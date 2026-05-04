@@ -30,6 +30,7 @@ from src.statreportbuilder.ui.output_renderer import (
     extract_interpretation,
     output_to_html,
 )
+from src.statreportbuilder.ui.theme import category_color
 
 
 PAGE_FORMATS = ["A4", "Letter", "Legal"]
@@ -79,7 +80,7 @@ class _BlockCard(QFrame):
         self.setFrameShape(QFrame.StyledPanel)
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
         self.setStyleSheet(
-            "QFrame { background: #ffffff; border: 1px solid #d4d6da; border-radius: 6px; }"
+            "QFrame { background: #ffffff; border: 1px solid #cdd7e3; border-radius: 6px; }"
         )
 
         layout = QVBoxLayout(self)
@@ -92,18 +93,22 @@ class _BlockCard(QFrame):
         self._title_edit.setText(_effective_title(snapshot.block, snapshot.overrides))
         self._title_edit.setPlaceholderText("Section title")
         self._title_edit.setStyleSheet(
-            "QLineEdit { font-weight: bold; font-size: 13px; "
-            "border: 1px solid transparent; padding: 2px 4px; }"
-            "QLineEdit:focus { border: 1px solid #4a90e2; background: #fafbfc; }"
-            "QLineEdit:hover { border: 1px solid #d4d6da; }"
+            "QLineEdit { font-weight: bold; font-size: 13px; color: #1f5fa8; "
+            "background: transparent; border: 1px solid transparent; padding: 2px 4px; }"
+            "QLineEdit:focus { border: 1px solid #4a90e2; background: #fafcff; }"
+            "QLineEdit:hover { border: 1px solid #cdd7e3; }"
         )
         self._title_edit.editingFinished.connect(self._emit_title)
         header.addWidget(self._title_edit, stretch=1)
 
+        category = getattr(snapshot.block, "category", "")
+        badge_bg = category_color(category, "bg")
+        badge_fg = category_color(category, "accent")
+
         badge = QLabel(f"{snapshot.block.title}  ·  {snapshot.node_id}")
         badge.setStyleSheet(
-            "color: #888; font-size: 10px; padding: 2px 6px; "
-            "background: #f0f2f5; border-radius: 3px; border: none;"
+            f"color: {badge_fg}; font-size: 10px; font-weight: bold; padding: 2px 6px; "
+            f"background: {badge_bg}; border-radius: 3px; border: none;"
         )
         header.addWidget(badge)
         layout.addLayout(header)
@@ -115,8 +120,8 @@ class _BlockCard(QFrame):
         )
         self._narrative.setFixedHeight(80)
         self._narrative.setStyleSheet(
-            "QPlainTextEdit { border: 1px solid #d4d6da; border-radius: 4px; "
-            "background: #fafbfc; }"
+            "QPlainTextEdit { border: 1px solid #cdd7e3; border-radius: 4px; "
+            "background: #fafcff; }"
         )
         self._narrative.textChanged.connect(self._emit_narrative)
         layout.addWidget(self._narrative)
@@ -143,8 +148,8 @@ class _BlockCard(QFrame):
         browser = QTextBrowser()
         browser.setOpenLinks(False)
         browser.setStyleSheet(
-            "QTextBrowser { border: 1px solid #e1e3e6; border-radius: 4px; "
-            "background: #fafbfc; padding: 4px; }"
+            "QTextBrowser { border: 1px solid #d6dee9; border-radius: 4px; "
+            "background: #fafcff; padding: 4px; }"
         )
         browser.setHtml(output_to_html(value))
         browser.setMinimumHeight(80)
@@ -169,7 +174,7 @@ class RenderOptionsRegion(QWidget):
         self.setObjectName("RenderOptionsRegion")
         self.setFixedHeight(100)
         self.setStyleSheet(
-            "#RenderOptionsRegion { background: #f3f4f6; border-bottom: 1px solid #d4d6da; }"
+            "#RenderOptionsRegion { background: #eef3fa; border-bottom: 1px solid #cdd7e3; }"
         )
 
         outer = QVBoxLayout(self)
@@ -177,7 +182,7 @@ class RenderOptionsRegion(QWidget):
         outer.setSpacing(2)
 
         label = QLabel("Render Format")
-        label.setStyleSheet("color: #555; font-size: 11px; font-weight: bold;")
+        label.setStyleSheet("color: #1f5fa8; font-size: 11px; font-weight: bold;")
         outer.addWidget(label)
 
         bar = QHBoxLayout()
@@ -205,9 +210,10 @@ class RenderOptionsRegion(QWidget):
 
         self._compile_btn = QPushButton("Compile / Render")
         self._compile_btn.setStyleSheet(
-            "QPushButton { background: #4a90e2; color: white; padding: 4px 14px; "
-            "border-radius: 4px; font-weight: bold; }"
-            "QPushButton:hover { background: #3a78c2; }"
+            "QPushButton { background: #1f5fa8; color: white; padding: 5px 16px; "
+            "border: 1px solid #174d8a; border-radius: 4px; font-weight: bold; }"
+            "QPushButton:hover { background: #2a6cb8; border-color: #1f5fa8; color: white; }"
+            "QPushButton:pressed { background: #174d8a; }"
         )
         self._compile_btn.clicked.connect(self.compile_requested)
         bar.addWidget(self._compile_btn)
@@ -370,7 +376,7 @@ class CompiledReportDialog(QDialog):
         layout.setSpacing(0)
 
         toolbar = QWidget()
-        toolbar.setStyleSheet("background: #f3f4f6; border-bottom: 1px solid #d4d6da;")
+        toolbar.setStyleSheet("background: #eef3fa; border-bottom: 1px solid #cdd7e3;")
         bar = QHBoxLayout(toolbar)
         bar.setContentsMargins(8, 6, 8, 6)
         bar.addStretch()

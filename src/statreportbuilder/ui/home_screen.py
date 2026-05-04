@@ -32,6 +32,14 @@ class TemplateCard(QPushButton):
         super().__init__(text, parent)
         self.setFixedSize(180, 110)
         self.setCursor(Qt.PointingHandCursor)
+        self.setStyleSheet(
+            "QPushButton { background: #ffffff; border: 1px solid #cdd7e3; "
+            "border-radius: 8px; color: #1c2733; font-size: 12px; padding: 12px; "
+            "text-align: center; }"
+            "QPushButton:hover { background: #e8f1fb; border-color: #4a90e2; "
+            "color: #1f5fa8; }"
+            "QPushButton:pressed { background: #d4e7f7; }"
+        )
 
 
 class ProjectCard(QWidget):
@@ -49,7 +57,7 @@ class ProjectCard(QWidget):
         icon = QLabel()
         icon.setFixedSize(96, 96)
         icon.setStyleSheet(
-            "background-color: #d8d8d8; border: 1px solid #b8b8b8; border-radius: 6px;"
+            "background-color: #e8f1fb; border: 1px solid #7fb1de; border-radius: 8px;"
         )
         layout.addWidget(icon, alignment=Qt.AlignHCenter)
 
@@ -57,6 +65,7 @@ class ProjectCard(QWidget):
         name.setAlignment(Qt.AlignCenter)
         name.setFixedWidth(120)
         name.setWordWrap(True)
+        name.setStyleSheet("color: #1c2733; font-weight: 500;")
         layout.addWidget(name, alignment=Qt.AlignHCenter)
 
     def mousePressEvent(self, event) -> None:
@@ -99,7 +108,7 @@ class HomeScreen(QWidget):
         layout.setSpacing(10)
 
         header = QLabel("Start a new project")
-        header.setStyleSheet("font-size: 16px; font-weight: bold;")
+        header.setStyleSheet("font-size: 17px; font-weight: bold; color: #1f5fa8;")
         layout.addWidget(header)
 
         row = QHBoxLayout()
@@ -127,7 +136,7 @@ class HomeScreen(QWidget):
         layout.setSpacing(10)
 
         header = QLabel("Your projects")
-        header.setStyleSheet("font-size: 16px; font-weight: bold;")
+        header.setStyleSheet("font-size: 17px; font-weight: bold; color: #1f5fa8;")
         layout.addWidget(header)
 
         scroll = QScrollArea()
