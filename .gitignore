@@ -26,6 +26,10 @@ MANIFEST
 # PyInstaller
 *.manifest
 *.spec
+!StatReportBuilder.spec
+
+# Release artifacts
+StatReportBuilder-*.zip
 
 # Installer logs
 pip-log.txt
