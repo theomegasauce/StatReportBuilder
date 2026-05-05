@@ -9,6 +9,7 @@ hiddenimports += collect_submodules("scipy.special")
 datas = []
 datas += collect_data_files("scipy")
 datas += collect_data_files("matplotlib")
+datas += [("StatReportBuilder.bat", ".")]
 
 
 a = Analysis(
